@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grabify - Online Video Analysis </title>
+    <style>
+        :root {
+            --bg: #000000;
+            --fg: #ffffff;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Inter", "Helvetica Neue", sans-serif;
+            cursor: none; /* 禁用原生鼠标 */
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding-bottom: 60px; /* 给固定页脚留空间 */
+        }
+
+        /* --- 鼠标系统 --- */
+        #cursor-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        #cursor-dot {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+        }
+
+        #cursor-ring {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.3s, height 0.3s, border-color 0.3s;
+        }
+
+        /* --- 主页面内容 --- */
+        .main {
+            width: 100%;
+            max-width: 800px;
+            margin-top: 20vh;
+            padding: 0 40px;
+        }
+
+        h1 {
+            font-size: clamp(40px, 10vw, 80px);
+            font-weight: 900;
+            letter-spacing: -2px;
+            text-transform: uppercase;
+            margin-bottom: 80px;
+            line-height: 0.9;
+        }
+
+        /* --- 输入框 + 按钮样式 --- */
+        .search-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 10px 0;
+            transition: border-color 0.5s;
+        }
+
+        .search-container:focus-within {
+            border-bottom-color: #fff;
+        }
+
+        input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            padding: 10px 0;
+            outline: none;
+        }
+
+        .parse-btn {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 14px;
+            padding: 10px 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 600;
+            transition: opacity 0.3s;
+        }
+
+        /* 加载动画线 */
+        .search-container.loading::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: #fff;
+            animation: loading-line 1.5s infinite;
+        }
+
+        @keyframes loading-line {
+            0% { transform: scaleX(0); transform-origin: left; }
+            50% { transform: scaleX(1); transform-origin: left; }
+            51% { transform: scaleX(1); transform-origin: right; }
+            100% { transform: scaleX(0); transform-origin: right; }
+        }
+
+        /* --- 结果列表样式 --- */
+        .results {
+            margin-top: 100px;
+            display: none;
+            flex-direction: column;
+            gap: 0;
+            animation: fadeIn 1s ease;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .res-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 30px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .res-label {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .res-link, .res-action {
+            color: #fff;
+            text-decoration: none;
+            font-size: 15px;
+            transition: opacity 0.3s;
+            background: none;
+            border: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .res-link:hover, .res-action:hover {
+            opacity: 0.6;
+        }
+
+        #v-preview {
+            width: 120px;
+            filter: grayscale(1);
+            transition: 0.5s;
+        }
+        #v-preview:hover { filter: grayscale(0); }
+
+        /* --- 页脚固定 --- */
+        footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            padding: 15px 0;
+            background: rgba(0,0,0,0.8);
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        footer p { margin: 0; }
+    </style>
+</head>
+<body>
+
+    <!-- 鼠标 -->
+    <div id="cursor-container">
+        <div id="cursor-dot"></div>
+        <div id="cursor-ring"></div>
+    </div>
+
+    <div class="main">
+        <h1>Grabify<br>EXTRACTOR.</h1>
+        
+        <!-- 搜索框 -->
+        <div class="search-container" id="searchBar">
+            <input type="text" id="urlInput" placeholder="ENTER LINK HERE" spellcheck="false">
+            <button class="parse-btn" id="parseBtn" onclick="handleParse()">PARSE</button>
+        </div>
+
+        <!-- 结果展示 -->
+        <div class="results" id="resArea">
+            <div class="res-item">
+                <span class="res-label">Thumbnail</span>
+                <img id="v-preview" src="" alt="">
+            </div>
+            <div class="res-item">
+                <span class="res-label">Video Source</span>
+                <a id="dl-v" href="#" target="_blank" class="res-link">Download MP4</a>
+            </div>
+            <div class="res-item">
+                <span class="res-label">Audio Track</span>
+                <div>
+                    <button id="gen-a" onclick="processAudio()" class="res-action">Generate Audio</button>
+                    <a id="dl-a" href="#" class="res-action" style="display:none">Save WAV</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 固定页脚 -->
+    <footer>
+        <p>© 2026 Grabify. All rights reserved.  By X@becompiles
+        </p>
+    </footer>
+
+    <script>
+        // --- 鼠标交互 ---
+        const cursorContainer = document.getElementById('cursor-container');
+        const dot = document.getElementById('cursor-dot');
+        const ring = document.getElementById('cursor-ring');
+        let mouseX = 0, mouseY = 0;
+        let ringX = 0, ringY = 0;
+        let isMoving = false;
+
+        window.addEventListener('mousemove', e => {
+            if(!isMoving) { cursorContainer.style.opacity = '1'; isMoving = true; }
+            mouseX = e.clientX; mouseY = e.clientY;
+            dot.style.left = mouseX + 'px';
+            dot.style.top = mouseY + 'px';
+        });
+
+        function animateRing() {
+            ringX += (mouseX - ringX) * 0.15;
+            ringY += (mouseY - ringY) * 0.15;
+            ring.style.left = ringX + 'px';
+            ring.style.top = ringY + 'px';
+            requestAnimationFrame(animateRing);
+        }
+        animateRing();
+
+        const interactives = document.querySelectorAll('button, input, a, img');
+        interactives.forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                ring.style.width = '60px';
+                ring.style.height = '60px';
+                ring.style.borderColor = '#fff';
+            });
+            el.addEventListener('mouseleave', () => {
+                ring.style.width = '32px';
+                ring.style.height = '32px';
+                ring.style.borderColor = 'rgba(255,255,255,0.4)';
+            });
+        });
+
+        // --- 视频解析 ---
+        async function handleParse() {
+            const input = document.getElementById('urlInput');
+            const btn = document.getElementById('parseBtn');
+            const searchBar = document.getElementById('searchBar');
+            const resArea = document.getElementById('resArea');
+
+            if(!input.value) return;
+
+            searchBar.classList.add('loading');
+            btn.disabled = true;
+            btn.innerText = "...";
+
+            try {
+                const api = `https://api.bugpk.com/api/short_videos?url=${encodeURIComponent(input.value)}`;
+                const response = await fetch(api);
+                const json = await response.json();
+                const data = json.data || json;
+                const vUrl = data.url || data.video_url;
+
+                if(vUrl) {
+                    document.getElementById('dl-v').href = vUrl;
+                    document.getElementById('v-preview').src = data.cover || data.cover_url || "";
+                    resArea.style.display = "flex";
+                }
+            } catch (e) {
+                alert("Error parsing the video link.");
+            } finally {
+                searchBar.classList.remove('loading');
+                btn.disabled = false;
+                btn.innerText = "PARSE";
+            }
+        }
+
+        // --- 音频生成 ---
+        async function processAudio() {
+            const vUrl = document.getElementById('dl-v').href;
+            const btn = document.getElementById('gen-a');
+            const dl = document.getElementById('dl-a');
+            
+            btn.innerText = "PROCESSING...";
+            
+            try {
+                const response = await fetch(vUrl);
+                const arrayBuffer = await response.arrayBuffer();
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+                const url = URL.createObjectURL(wavBlob);
+
+                btn.style.display = 'none';
+                dl.href = url;
+                dl.download = "audio.wav";
+                dl.style.display = 'inline-block';
+            } catch (e) {
+                btn.innerText = "FAILED";
+            }
+        }
+
+        function bufferToWave(abuffer, len) {
+            let numOfChan = abuffer.numberOfChannels, length = len * numOfChan * 2 + 44, buffer = new ArrayBuffer(length), view = new DataView(buffer),
+                channels = [], i, sample, offset = 0, pos = 0;
+            function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
+            function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
+            setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157); setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
+            setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan); setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164); setUint32(length - pos - 4);
+            for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
+            while(pos < length) {
+                for(i = 0; i < numOfChan; i++) {
+                    sample = Math.max(-1, Math.min(1, channels[i][offset]));
+                    sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767)|0;
+                    view.setInt16(pos, sample, true); pos += 2;
+                }
+                offset++;
+            }
+            return new Blob([buffer], {type: "audio/wav"});
+        }
+    </script>
+</body>
+</html>
